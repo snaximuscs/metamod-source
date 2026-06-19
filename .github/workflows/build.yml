@@ -50,8 +50,10 @@ jobs:
 
       - name: Checkout Metamod dependencies
         run: |
-          chmod +x support/checkout-deps.sh || true
-          ./support/checkout-deps.sh
+          cd ..
+          chmod +x metamod-source/support/checkout-deps.sh
+          ./metamod-source/support/checkout-deps.sh
+          cd metamod-source
 
       - name: Configure build
         run: |
