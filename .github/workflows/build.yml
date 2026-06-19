@@ -12,9 +12,6 @@ jobs:
     name: Linux Build
     runs-on: ubuntu-latest
 
-    env:
-      PATH: /home/runner/.local/bin:${{ github.workspace }}/ambuild:${{ env.PATH }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,6 +44,7 @@ jobs:
             cd /tmp/ambuild
             python3 setup.py install --user
           fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           which ambuild || true
           ambuild --version || true
 
