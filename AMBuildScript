@@ -176,6 +176,12 @@ class MMSConfig(object):
         cxx.cflags += [
           '-Wno-ordered-compare-function-pointers',
         ]
+      if cxx.family == 'clang':
+        cxx.cflags += [
+          '-Wno-deprecated-copy',
+          '-Wno-format-nonliteral',
+          '-Wno-ignored-qualifiers',
+        ]
 
     elif cxx.like('msvc'):
       if builder.options.debug == '1':
