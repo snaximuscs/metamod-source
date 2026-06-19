@@ -172,6 +172,11 @@ namespace SourceHook
 			{
 				m_This = where.m_This;
 			}
+			iterator & operator=(const iterator &other)
+			{
+				m_This = other.m_This;
+				return *this;
+			}
 			//pre decrement
 			iterator & operator--()
 			{
