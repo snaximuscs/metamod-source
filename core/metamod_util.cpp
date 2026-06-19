@@ -158,6 +158,10 @@ bool UTIL_PathCmp(const char *path1, const char *path2)
 	}
 }
 
+#if defined(__clang__)
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
 size_t UTIL_Format(char *buffer, size_t maxlength, const char *fmt, ...)
 {
 	va_list ap;
@@ -187,6 +191,9 @@ size_t UTIL_FormatArgs(char *buffer, size_t maxlength, const char *fmt, va_list 
 
 	return len;
 }
+#if defined(__clang__)
+#  pragma clang diagnostic pop
+#endif
 
 inline bool pathchar_isalpha(char a)
 {

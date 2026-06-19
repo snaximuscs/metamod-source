@@ -62,6 +62,10 @@ mm_GetPlatformError(char *buffer, size_t maxlength)
 #endif
 
 
+#if defined(__clang__)
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
 size_t
 mm_FormatArgs(char *buffer, size_t maxlength, const char *fmt, va_list params)
 {
@@ -75,6 +79,9 @@ mm_FormatArgs(char *buffer, size_t maxlength, const char *fmt, va_list params)
 
 	return len;
 }
+#if defined(__clang__)
+#  pragma clang diagnostic pop
+#endif
 
 size_t
 mm_Format(char *buffer, size_t maxlength, const char *fmt, ...)

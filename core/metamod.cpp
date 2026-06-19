@@ -432,6 +432,10 @@ private:
     T old_;
 };
 
+#if defined(__clang__)
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wformat-nonliteral"
+#endif
 int
 mm_LogMessage(const char *msg, ...)
 {
@@ -476,6 +480,9 @@ mm_LogMessage(const char *msg, ...)
 
 	return ret;
 }
+#if defined(__clang__)
+#  pragma clang diagnostic pop
+#endif
 
 static void
 DoInitialPluginLoads()
