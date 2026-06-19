@@ -1,0 +1,78 @@
+name: Build Metamod Source
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master, dev ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Linux Build
+    runs-on: ubuntu-latest
+
+    env:
+      PATH: /home/runner/.local/bin:${{ github.workspace }}/ambuild:${{ env.PATH }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel \
+            git \
+            build-essential \
+            gcc-multilib \
+            g++-multilib \
+            libc6-dev-i386 \
+            linux-libc-dev \
+            curl \
+            ca-certificates
+
+      - name: Install AMBuild
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ambuild || true
+          if ! command -v ambuild >/dev/null 2>&1; then
+            git clone https://github.com/alliedmodders/ambuild /tmp/ambuild
+            cd /tmp/ambuild
+            python3 setup.py install --user
+          fi
+          which ambuild || true
+          ambuild --version || true
+
+      - name: Checkout Metamod dependencies
+        run: |
+          chmod +x support/checkout-deps.sh || true
+          ./support/checkout-deps.sh
+
+      - name: Configure build
+        run: |
+          mkdir -p build
+          cd build
+          python3 ../configure.py
+
+      - name: Compile
+        run: |
+          cd build
+          ambuild
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1st-mn-metamod-source-linux
+          path: |
+            build/package/**
+            build/**/*.so
+            build/**/*.vdf
+            build/**/*.tar.gz
+          if-no-files-found: warn
