@@ -55,6 +55,11 @@ jobs:
           ./metamod-source/support/checkout-deps.sh
           cd metamod-source
 
+      - name: Fix clang warning flag
+        run: |
+          git grep -l -- "-Wno-nontrivial-memcall" | xargs -r sed -i 's/-Wno-nontrivial-memcall/-Wno-nontrivial-memaccess/g'
+          git --no-pager diff --name-only || true
+
       - name: Configure build
         run: |
           mkdir -p build
