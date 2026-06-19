@@ -127,6 +127,7 @@ class MMSConfig(object):
         '-Wno-uninitialized',
         '-Wno-sign-compare',
         '-Wno-unused',
+        '-Wno-unused-parameter',
         '-Wno-switch',
         '-Wno-unknown-pragmas',
         '-Wno-dangling-else',
