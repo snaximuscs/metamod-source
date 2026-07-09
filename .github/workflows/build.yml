@@ -49,22 +49,22 @@ jobs:
           which ambuild || true
           ambuild --version || true
 
-      - name: Checkout Metamod dependencies
+      - name: Checkout Metamod dependencies (CS2 SDK only)
         run: |
           cd ..
           chmod +x metamod-source/support/checkout-deps.sh
-          ./metamod-source/support/checkout-deps.sh
+          ./metamod-source/support/checkout-deps.sh -s cs2
           cd metamod-source
 
       - name: Fix SDK compiler warnings
         run: |
           grep -rl -- "-Wno-nontrivial-memcall" . --include="*.cpp" --include="*.h" --include="*.hpp" 2>/dev/null | xargs -r sed -i 's/-Wno-nontrivial-memcall/-Wno-nontrivial-memaccess/g'
 
-      - name: Configure build
+      - name: Configure build (CS2 only)
         run: |
           mkdir -p build
           cd build
-          python3 ../configure.py --targets=x86_64
+          python3 ../configure.py --sdks=cs2 --enable-optimize --targets=x86_64
 
       - name: Compile
         run: |
@@ -83,13 +83,18 @@ jobs:
           done
           exit $bad
 
+      - name: Verify CS2 package contents
+        run: |
+          test -f build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.cs2.so
+          if [ -f build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.dota.so ]; then
+            echo "::error::metamod.2.dota.so must not be in the CS2 package"
+            exit 1
+          fi
+          ls -lah build/package/addons/metamod/bin/linuxsteamrt64/
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 1st-mn-metamod-source-linux
-          path: |
-            build/package/**
-            build/**/*.so
-            build/**/*.vdf
-            build/**/*.tar.gz
-          if-no-files-found: warn
+          name: metamod-source-cs2-linuxsteamrt64
+          path: build/package/**
+          if-no-files-found: error
