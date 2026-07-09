@@ -9,8 +9,13 @@ on:
 
 jobs:
   build-linux:
-    name: Linux Build
+    name: Linux Build (Steam Runtime sniper)
     runs-on: ubuntu-latest
+    # Build inside the Steam Runtime "sniper" SDK (glibc 2.31) so the
+    # resulting binaries load on CS2 dedicated servers. Building on the
+    # runner's own toolchain produces GLIBC_2.38+ symbol dependencies.
+    container:
+      image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk
 
     steps:
       - name: Checkout repository
@@ -20,18 +25,14 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          git config --global --add safe.directory '*'
+          apt-get update
+          apt-get install -y \
             python3 \
             python3-pip \
             python3-setuptools \
             python3-wheel \
             git \
-            build-essential \
-            gcc-multilib \
-            g++-multilib \
-            libc6-dev-i386 \
-            linux-libc-dev \
             curl \
             ca-certificates
 
@@ -63,12 +64,24 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          python3 ../configure.py
+          python3 ../configure.py --targets=x86_64
 
       - name: Compile
         run: |
           cd build
           ambuild
+
+      - name: Check glibc symbol versions
+        run: |
+          # Fail if any binary requires glibc newer than sniper's 2.31
+          bad=0
+          for so in $(find build -name '*.so'); do
+            if objdump -T "$so" | grep -E 'GLIBC_2\.(3[2-9]|[4-9][0-9])' ; then
+              echo "::error::$so requires glibc symbols newer than 2.31"
+              bad=1
+            fi
+          done
+          exit $bad
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
