@@ -24,6 +24,8 @@
  */
 
 #include <cstdio>
+#include <cerrno>
+#include <cstring>
 #include <sys/stat.h>
 
 #include "metamod_oslink.h"
@@ -258,9 +260,13 @@ LoadPluginsFromFile(const char *filepath, int &skipped)
 	fp = fopen(filepath, "rt");
 	if (!fp)
 	{
-		UTIL_Diag("stage=plugin-load ini=\"%s\" result=not-found (no plugins listed)", filepath);
+		/* A missing metaplugins.ini is normal for a plugin-less install:
+		 * continue safely with 0 plugins. */
+		UTIL_Diag("stage=metaplugins-open path=\"%s\" result=failed errno=%d (%s) - continuing with 0 plugins",
+			filepath, errno, strerror(errno));
 		return 0;
 	}
+	UTIL_Diag("stage=metaplugins-open path=\"%s\" result=ok", filepath);
 
 	char buffer[255], error[255], full_path[PATH_SIZE];
 	const char *file;
@@ -328,7 +334,9 @@ LoadPluginsFromFile(const char *filepath, int &skipped)
 
 		g_Metamod.GetFullPluginPath(file, full_path, sizeof(full_path));
 
+		UTIL_Diag("stage=plugin-load-attempt entry=\"%s\" path=\"%s\"", file, full_path);
 		id = g_PluginMngr.Load(full_path, Pl_File, already, error, sizeof(error));
+		UTIL_Diag("stage=plugin-load-attempt entry=\"%s\" id=%d", file, (int)id);
 		CPluginManager::CPlugin *pl = (id < Pl_MinId) ? NULL : g_PluginMngr.FindById(id);
 		if (!pl || pl->m_Status < Pl_Paused)
 		{
@@ -488,9 +496,12 @@ mm_LogMessage(const char *msg, ...)
 static void
 DoInitialPluginLoads()
 {
+	UTIL_Diag("stage=metaplugins-resolve begin (command line lookup)");
 	const char *pluginFile = provider->GetCommandLineValue("mm_pluginsfile", NULL);
 	const char *mmBaseDir = provider->GetCommandLineValue("mm_basedir", NULL);
-	if (!pluginFile) 
+	UTIL_Diag("stage=metaplugins-resolve cmdline pluginsfile=\"%s\" basedir=\"%s\"",
+		pluginFile ? pluginFile : "<unset>", mmBaseDir ? mmBaseDir : "<unset>");
+	if (!pluginFile)
 	{
 		pluginFile = provider->GetConVarString(mm_pluginsfile);
 		if (pluginFile == NULL)
@@ -506,6 +517,8 @@ DoInitialPluginLoads()
 			mmBaseDir = "addons/metamod";
 		}
 	}
+	UTIL_Diag("stage=metaplugins-resolve resolved pluginsfile=\"%s\" basedir=\"%s\" mod_path=\"%s\"",
+		pluginFile, mmBaseDir, mod_path.c_str());
 
 	char filepath[PATH_SIZE], vdfpath[PATH_SIZE];
 
@@ -521,28 +534,48 @@ mm_StartupMetamod(bool is_vsp_load)
 {
 	char buffer[255];
 
+	UTIL_Diag("stage=metamod-start begin provider=%p vsp=%d", (void *)provider, (int)is_vsp_load);
+	if (provider == NULL)
+	{
+		UTIL_Diag("stage=metamod-start ABORT provider is null");
+		return;
+	}
+
 	UTIL_Format(buffer,
 		sizeof(buffer),
 		"%s%s",
 		METAMOD_VERSION,
 		is_vsp_load ? "V" : "");
 
-	metamod_version = provider->CreateConVar("metamod_version", 
-		METAMOD_VERSION, 
+	UTIL_Diag("stage=metamod-convars begin name=metamod_version (SDK CConVar ctor + engine cvar registration)");
+	metamod_version = provider->CreateConVar("metamod_version",
+		METAMOD_VERSION,
 		"Metamod:Source Version",
 		ConVarFlag_Notify|ConVarFlag_SpOnly);
+	UTIL_Diag("stage=metamod-convars name=metamod_version ptr=%p", (void *)metamod_version);
 
-	provider->SetConVarString(metamod_version, buffer);
+	if (metamod_version != NULL)
+	{
+		provider->SetConVarString(metamod_version, buffer);
+		UTIL_Diag("stage=metamod-convars name=metamod_version value-set ok");
+	}
+	else
+	{
+		UTIL_Diag("stage=metamod-convars name=metamod_version SKIP value-set (creation failed)");
+	}
 
-	mm_pluginsfile = provider->CreateConVar("mm_pluginsfile", 
+	UTIL_Diag("stage=metamod-convars begin name=mm_pluginsfile");
+	mm_pluginsfile = provider->CreateConVar("mm_pluginsfile",
 #if defined WIN32 || defined _WIN32
-		"addons\\metamod\\metaplugins.ini", 
+		"addons\\metamod\\metaplugins.ini",
 #else
 		"addons/metamod/metaplugins.ini",
 #endif
 		"Metamod:Source Plugins File",
 		ConVarFlag_SpOnly);
+	UTIL_Diag("stage=metamod-convars name=mm_pluginsfile ptr=%p", (void *)mm_pluginsfile);
 
+	UTIL_Diag("stage=metamod-convars begin name=mm_basedir");
 	mm_basedir = provider->CreateConVar("mm_basedir",
 #if defined __linux__ || defined __APPLE__
 		"addons/metamod",
@@ -551,7 +584,9 @@ mm_StartupMetamod(bool is_vsp_load)
 #endif
 		"Metamod:Source Base Folder",
 		ConVarFlag_SpOnly);
-	
+	UTIL_Diag("stage=metamod-convars name=mm_basedir ptr=%p", (void *)mm_basedir);
+	UTIL_Diag("stage=metamod-convars complete");
+
 	g_bIsVspBridged = is_vsp_load;
 
 	if (!is_vsp_load)
@@ -559,6 +594,8 @@ mm_StartupMetamod(bool is_vsp_load)
 		DoInitialPluginLoads();
 		in_first_level = true;
 	}
+
+	UTIL_Diag("stage=metamod-start complete (returning to engine)");
 }
 
 void
@@ -1334,17 +1371,26 @@ mm_LoadPlugins(const char *filepath, const char *vdfpath)
 	int total, skipped, fskipped, vskipped;
 	const char *s = "";
 
+	UTIL_Diag("stage=plugin-load ini begin file=\"%s\"", filepath);
 	total = LoadPluginsFromFile(filepath, fskipped);
+	UTIL_Diag("stage=plugin-load ini complete count=%d", total);
+	UTIL_Diag("stage=plugin-load vdf begin dir=\"%s\"", vdfpath);
 	total += LoadVDFPluginsFromDir(vdfpath, vskipped);
+	UTIL_Diag("stage=plugin-load vdf complete total=%d", total);
 	skipped = fskipped + vskipped;
 
 	if (total == 0 || total > 1)
 		s = "s";
 
+	/* mm_LogMessage below makes the first virtual calls into the engine
+	 * after startup (IVEngineServer::LogPrint, ConMsg). If those vtable
+	 * slots moved in an engine update, the crash lands here. */
+	UTIL_Diag("stage=plugin-load summary-log begin (engine->LogPrint + ConMsg)");
 	if (skipped)
 		mm_LogMessage("[META] Loaded %d plugin%s (%d already loaded)", total, s, skipped);
 	else
 		mm_LogMessage("[META] Loaded %d plugin%s.", total, s);
+	UTIL_Diag("stage=plugin-load summary-log complete");
 
 	return total;
 }

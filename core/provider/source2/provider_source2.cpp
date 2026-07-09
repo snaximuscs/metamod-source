@@ -372,7 +372,14 @@ bool Source2Provider::Hook_AllowDedicatedServers(EUniverse universe) const
 
 const char* Source2Provider::GetCommandLineValue(const char* key, const char* defval)
 {
-	return CommandLine()->ParmValue(key, defval);
+	// Post-update compat: tier0's CommandLine() must not be assumed valid.
+	ICommandLine *pCmdLine = CommandLine();
+	if (pCmdLine == NULL)
+	{
+		UTIL_Diag("stage=cmdline-lookup key=\"%s\" result=FAILED (CommandLine() is null)", key);
+		return defval;
+	}
+	return pCmdLine->ParmValue(key, defval);
 }
 
 void Source2Provider::ConsolePrint(const char* str)
@@ -403,6 +410,11 @@ const char* Source2Provider::GetConVarString(MetamodSourceConVar *convar)
 
 void Source2Provider::SetConVarString(MetamodSourceConVar *convar, const char* str)
 {
+	if (convar == NULL || str == NULL)
+	{
+		UTIL_Diag("stage=convar-set result=SKIPPED (convar=%p str=%p)", (void *)convar, (const void *)str);
+		return;
+	}
 	reinterpret_cast<CConVar<CUtlString> *>(convar)->Set( str );
 }
 
@@ -464,8 +476,13 @@ MetamodSourceConVar* Source2Provider::CreateConVar(const char* name,
 		newflags |= FCVAR_SPONLY;
 	}
 
+	// The CConVar ctor registers with the engine's cvar system; if the
+	// convar ABI changed in an engine update, the crash lands between
+	// these two diagnostics.
+	UTIL_Diag("stage=convar-create name=\"%s\" begin (SDK CConVar ctor) g_pCVar=%p", name, (void *)g_pCVar);
 	CConVar<CUtlString> *pVar = new CConVar<CUtlString>( name, newflags, help, defval );
-	
+	UTIL_Diag("stage=convar-create name=\"%s\" complete ptr=%p", name, (void *)pVar);
+
 	m_RegisteredConVars.push_back( pVar );
 
 	return reinterpret_cast<MetamodSourceConVar *>(pVar);
