@@ -38,6 +38,10 @@ class GameDllBridge : public IGameDllBridge
 public:
 	virtual bool DLLInit_Pre(const gamedll_bridge_info *info, char *buffer, size_t maxlength)
 	{
+		UTIL_Diag("stage=core-init begin iface=%s version=%d isgd=%p gsFactory=%p engineFactory=%p",
+			info->dllInterfaceName, info->dllVersion, (void *)info->isgd,
+			(void *)info->gsFactory, (void *)info->engineFactory);
+
 		server = (IServerGameDLL *) info->isgd;
 		g_Metamod.SetGameDLLInfo((CreateInterfaceFn)info->gsFactory,
 			info->dllInterfaceName,
@@ -48,15 +52,20 @@ public:
 			(CreateInterfaceFn) info->physicsFactory,
 			(CreateInterfaceFn) info->fsFactory,
 			(CGlobalVars*) info->pGlobals);
+		UTIL_Diag("stage=core-init provider Notify_DLLInit_Pre complete (engine interfaces resolved)");
 
 		if (!mm_DetectGameInformation())
 		{
+			UTIL_Diag("stage=core-init game-detect result=FAILED");
 			UTIL_Format(buffer, maxlength, "Metamod:Source failed to detect game paths; cannot load.");
 			return false;
 		}
+		UTIL_Diag("stage=core-init game-detect result=ok");
 
 		mm_InitializeForLoad();
+		UTIL_Diag("stage=core-init InitializeForLoad complete; starting metamod (convars + plugin phase)");
 		mm_StartupMetamod(false);
+		UTIL_Diag("stage=core-init startup complete (convars registered, plugin load phase finished)");
 
 		return true;
 	}

@@ -258,6 +258,7 @@ LoadPluginsFromFile(const char *filepath, int &skipped)
 	fp = fopen(filepath, "rt");
 	if (!fp)
 	{
+		UTIL_Diag("stage=plugin-load ini=\"%s\" result=not-found (no plugins listed)", filepath);
 		return 0;
 	}
 
@@ -510,7 +511,9 @@ DoInitialPluginLoads()
 
 	g_Metamod.PathFormat(filepath, sizeof(filepath), "%s/%s", mod_path.c_str(), pluginFile);
 	g_Metamod.PathFormat(vdfpath, sizeof(vdfpath), "%s/%s", mod_path.c_str(), mmBaseDir);
-	mm_LoadPlugins(filepath, vdfpath);
+	UTIL_Diag("stage=plugin-load begin ini=\"%s\" vdfdir=\"%s\"", filepath, vdfpath);
+	int total = mm_LoadPlugins(filepath, vdfpath);
+	UTIL_Diag("stage=plugin-load complete count=%d", total);
 }
 
 void

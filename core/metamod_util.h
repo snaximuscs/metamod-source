@@ -75,6 +75,14 @@ bool UTIL_PathCmp(const char *path1, const char *path2);
 size_t UTIL_Format(char *buffer, size_t maxlength, const char *fmt, ...);
 
 /**
+ * @brief Temporary crash-stage diagnostic: prints "MMS-DIAG: ..." to stdout
+ * and flushes immediately, so the last successful init stage is visible in
+ * the console even if the next step crashes. Uses no engine interfaces and
+ * is safe at any point of start-up.
+ */
+void UTIL_Diag(const char *fmt, ...);
+
+/**
  * @brief Same as vsnprintf except that it ensures the string buffer is null terminated.
  */
 size_t UTIL_FormatArgs(char *buffer, size_t maxlength, const char *fmt, va_list params);

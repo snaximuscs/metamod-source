@@ -47,9 +47,15 @@
 // false matches the engine's release behavior (the string-token database is
 // a dev-only feature) and keeps the guarded RegisterStringToken() call —
 // a lazily-bound function symbol — from ever being reached.
+// Scope: Linux only (Windows resolves it from tier0's import library), and
+// this translation unit only builds into Source 2 cores. Defined exactly
+// once, in this .cpp (never in a header), non-static because the SDK inline
+// code expects external "C" linkage for the tier0 data symbol.
+#if defined(__linux__)
 extern "C" {
 	bool g_bUpdateStringTokenDatabase = false;
 }
+#endif
 
 static Source2Provider g_Source2Provider;
 
@@ -119,7 +125,11 @@ static void* LookupInterfaceCompat(CreateInterfaceFn factory, const char* name)
 void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	CreateInterfaceFn serverFactory)
 {
+	UTIL_Diag("stage=provider-init begin engineFactory=%p serverFactory=%p",
+		(void *)engineFactory, (void *)serverFactory);
+
 	engine = (IVEngineServer*)LookupInterfaceCompat(engineFactory, INTERFACEVERSION_VENGINESERVER);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=yes", INTERFACEVERSION_VENGINESERVER, (void *)engine);
 	if (!engine)
 	{
 		DisplayError("Could not find IVEngineServer (\"%s\") in engine binary! "
@@ -129,11 +139,16 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	}
 
 	gpGlobals = engine->GetServerGlobals();
+	UTIL_Diag("stage=provider-init GetServerGlobals ptr=%p", (void *)gpGlobals);
 	serverconfig = (ISource2ServerConfig*)LookupInterfaceCompat(serverFactory, INTERFACEVERSION_SERVERCONFIG);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=no", INTERFACEVERSION_SERVERCONFIG, (void *)serverconfig);
 	netservice = (INetworkServerService*)LookupInterfaceCompat(engineFactory, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=no", NETWORKSERVERSERVICE_INTERFACE_VERSION, (void *)netservice);
 	enginesvcmgr = (IEngineServiceMgr*)LookupInterfaceCompat(engineFactory, ENGINESERVICEMGR_INTERFACE_VERSION);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=no", ENGINESERVICEMGR_INTERFACE_VERSION, (void *)enginesvcmgr);
 
 	icvar = (ICvar*)LookupInterfaceCompat(engineFactory, CVAR_INTERFACE_VERSION);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=yes", CVAR_INTERFACE_VERSION, (void *)icvar);
 	if (!icvar)
 	{
 		DisplayError("Could not find ICvar (\"%s\") in engine binary! "
@@ -143,7 +158,9 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	}
 
 	gameclients = (IServerGameClients*)LookupInterfaceCompat(serverFactory, INTERFACEVERSION_SERVERGAMECLIENTS);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=no", INTERFACEVERSION_SERVERGAMECLIENTS, (void *)gameclients);
 	g_pFullFileSystem = baseFs = (IFileSystem*)LookupInterfaceCompat(engineFactory, FILESYSTEM_INTERFACE_VERSION);
+	UTIL_Diag("stage=iface-lookup iface=%s ptr=%p required=no", FILESYSTEM_INTERFACE_VERSION, (void *)baseFs);
 	if (baseFs == NULL)
 	{
 		mm_LogMessage("Unable to find \"%s\": .vdf files will not be parsed", FILESYSTEM_INTERFACE_VERSION);
@@ -163,6 +180,7 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	// was actually found; previously a renamed IFileSystem crashed here.
 	if (baseFs != NULL)
 	{
+	UTIL_Diag("stage=filesystem-fixup begin (first virtual calls into IFileSystem)");
 	const char *pathIds[] = {
 		"ADDONS",
 		"CONTENT",
@@ -198,19 +216,29 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	CBufferStringN<260> searchPath;
 	baseFs->GetSearchPath("GAME", (GetSearchPathTypes_t)0, searchPath, 1);
 	baseFs->AddSearchPath(searchPath.Get(), "DEFAULT_WRITE_PATH");
+	UTIL_Diag("stage=filesystem-fixup complete");
 	}
 
 	g_pCVar = icvar;
 
+	UTIL_Diag("stage=convar-register begin");
 	ConVar_Register(FCVAR_RELEASE);
+	UTIL_Diag("stage=convar-register complete");
 
 	if (gameclients)
 	{
+		UTIL_Diag("stage=sourcehook-add hook=IServerGameClients::ClientCommand target=%p", (void *)gameclients);
 		SH_ADD_HOOK(IServerGameClients, ClientCommand, gameclients, SH_MEMBER(this, &Source2Provider::Hook_ClientCommand), false);
 	}
 
 #ifdef SHOULD_OVERRIDE_ALLOWDEDICATED_SERVER
-	SH_ADD_VPHOOK(ISource2ServerConfig, AllowDedicatedServers, serverconfig, SH_MEMBER(this, &Source2Provider::Hook_AllowDedicatedServers), false);
+	// Post-update compat: never vphook a null interface; a renamed
+	// Source2ServerConfig would otherwise crash here.
+	if (serverconfig != NULL)
+	{
+		UTIL_Diag("stage=sourcehook-add hook=ISource2ServerConfig::AllowDedicatedServers target=%p", (void *)serverconfig);
+		SH_ADD_VPHOOK(ISource2ServerConfig, AllowDedicatedServers, serverconfig, SH_MEMBER(this, &Source2Provider::Hook_AllowDedicatedServers), false);
+	}
 #endif
 
 	// Post-update compat: a renamed IEngineServiceMgr previously caused a
@@ -218,6 +246,7 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	// init/shutdown callbacks are degraded without it, but we can still load.
 	if (enginesvcmgr != NULL)
 	{
+		UTIL_Diag("stage=sourcehook-add hook=IEngineServiceMgr::(Un)RegisterLoopMode target=%p", (void *)enginesvcmgr);
 		SH_ADD_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
 		SH_ADD_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
 	}
@@ -226,6 +255,8 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 		mm_LogMessage("[META] Warning: \"%s\" unavailable; level init/shutdown notifications disabled",
 			ENGINESERVICEMGR_INTERFACE_VERSION);
 	}
+
+	UTIL_Diag("stage=provider-init complete");
 }
 
 void Source2Provider::Notify_DLLShutdown_Pre()

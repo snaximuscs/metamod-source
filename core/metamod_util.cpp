@@ -454,6 +454,18 @@ static inline bool PathExists(const char* path) {
 #endif
 }
 
+void UTIL_Diag(const char *fmt, ...)
+{
+	va_list ap;
+
+	fprintf(stdout, "MMS-DIAG: ");
+	va_start(ap, fmt);
+	vfprintf(stdout, fmt, ap);
+	va_end(ap);
+	fprintf(stdout, "\n");
+	fflush(stdout);
+}
+
 bool UTIL_Relatize(char buffer[], size_t maxlength, const char *relTo, const char *relFrom)
 {
 	if (UTIL_BadRelatize(buffer, maxlength, relTo, relFrom)) {

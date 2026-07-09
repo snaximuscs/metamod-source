@@ -75,6 +75,19 @@ mm_LogFatal(const char *message, ...)
 	fclose(fp);	
 }
 
+extern void
+mm_LogDiag(const char *message, ...)
+{
+	va_list ap;
+
+	fprintf(stdout, "MMS-DIAG: ");
+	va_start(ap, message);
+	vfprintf(stdout, message, ap);
+	va_end(ap);
+	fprintf(stdout, "\n");
+	fflush(stdout);
+}
+
 static const char *backend_names[] =
 {
 	"2.ep1",
@@ -159,7 +172,14 @@ mm_LoadMetamodLibrary(MetamodBackend backend, char *buffer, size_t maxlength)
 			  "metamod.%s" LIBRARY_MINEXT,
 			  backend_names[backend]);
 
+	mm_LogDiag("stage=load-core backend=%s path=\"%s\"",
+			   backend_names[backend], mm_path);
+
 	mm_library = (HMODULE)mm_LoadLibrary(mm_path, buffer, maxlength);
+
+	mm_LogDiag("stage=load-core result=%s handle=%p error=\"%s\"",
+			   mm_library != NULL ? "ok" : "FAILED", (void *)mm_library,
+			   mm_library != NULL ? "" : buffer);
 
 	return (mm_library != NULL);
 }
@@ -264,6 +284,11 @@ mm_GetGameName(char *buffer, size_t size)
 	{
 		strncpy(buffer, ".", size);
 	}
+
+	mm_LogDiag("stage=game-detect game=\"%s\" SteamAppId=\"%s\" SteamGameId=\"%s\"",
+			   buffer,
+			   std::getenv("SteamAppId") ? std::getenv("SteamAppId") : "<unset>",
+			   std::getenv("SteamGameId") ? std::getenv("SteamGameId") : "<unset>");
 }
 
 MetamodBackend

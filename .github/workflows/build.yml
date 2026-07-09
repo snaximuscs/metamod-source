@@ -96,16 +96,31 @@ jobs:
             exit 1
           fi
           echo "OK: g_bUpdateStringTokenDatabase is not an undefined dynamic symbol"
-          readelf -Ws "$so" | grep "g_bUpdateStringTokenDatabase" || true
+          echo "--- readelf dynamic symbol table entries ---"
+          readelf -Ws "$so" | grep g_bUpdateStringTokenDatabase || true
+          echo "--- nm -D dynamic symbol entries ---"
+          nm -D "$so" | grep g_bUpdateStringTokenDatabase || true
 
       - name: Verify CS2 package contents
         run: |
-          test -f build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.cs2.so
-          if [ -f build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.dota.so ]; then
+          bindir=build/package/addons/metamod/bin/linuxsteamrt64
+          # The engine loads the loader (libserver.so) first, then the loader
+          # loads metamod.2.cs2.so; both must ship together or the server
+          # crashes at CAppSystemDict module load (see error.txt).
+          test -f "$bindir/metamod.2.cs2.so"
+          test -f "$bindir/libserver.so"
+          if [ -f "$bindir/metamod.2.dota.so" ]; then
             echo "::error::metamod.2.dota.so must not be in the CS2 package"
             exit 1
           fi
-          ls -lah build/package/addons/metamod/bin/linuxsteamrt64/
+          # Informational: list unresolved data (OBJECT) symbols. These must
+          # be exported by libc/libstdc++/tier0 at runtime or dlopen aborts —
+          # exactly how g_bUpdateStringTokenDatabase broke. Review on failure.
+          for so in "$bindir/metamod.2.cs2.so" "$bindir/libserver.so"; do
+            echo "--- undefined data symbols in $so ---"
+            readelf -Ws "$so" | grep "UND" | awk '$4 == "OBJECT"' || true
+          done
+          ls -lah "$bindir/"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

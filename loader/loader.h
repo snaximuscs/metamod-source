@@ -123,6 +123,12 @@ mm_UnloadMetamodLibrary();
 extern void
 mm_LogFatal(const char *message, ...);
 
+/* Temporary crash-stage diagnostics: unbuffered stdout marker so the last
+ * successful init stage is visible in the server console even if the very
+ * next step crashes the process. */
+extern void
+mm_LogDiag(const char *message, ...);
+
 extern void
 mm_GetGameName(char *buffer, size_t size);
 

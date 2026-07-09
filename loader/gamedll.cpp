@@ -398,6 +398,9 @@ public:
 			mm_backend = MMBackend_DOTA;
 		}
 
+		mm_LogDiag("stage=engine-detect backend=%s game=\"%s\"",
+				   mm_GetBackendName(mm_backend), game_name);
+
 		char error[255];
 		if (!mm_LoadMetamodLibrary(mm_backend, error, sizeof(error)))
 		{
@@ -409,6 +412,8 @@ public:
 		{
 			typedef IGameDllBridge *(*GetGameDllBridge)();
 			GetGameDllBridge get_bridge = (GetGameDllBridge)mm_GetProcAddress("GetGameDllBridge");
+			mm_LogDiag("stage=core-bridge-lookup symbol=GetGameDllBridge ptr=%p",
+					   (void *)get_bridge);
 			if (get_bridge == NULL)
 			{
 				mm_UnloadMetamodLibrary();
@@ -418,6 +423,7 @@ public:
 			else
 			{
 				gamedll_bridge = get_bridge();
+				mm_LogDiag("stage=core-bridge-acquire bridge=%p", (void *)gamedll_bridge);
 			}
 		}
 
@@ -431,6 +437,8 @@ public:
 			g_bridge_info.vsp_listener_path = mm_path;
 
 			strcpy(error, "Unknown error");
+			mm_LogDiag("stage=core-dllinit-pre iface=%s version=%d",
+					   gamedll_iface_name, gamedll_version);
 			if (!gamedll_bridge->DLLInit_Pre(&g_bridge_info, error, sizeof(error)))
 			{
 				gamedll_bridge = NULL;
@@ -438,9 +446,14 @@ public:
 				mm_LogFatal("Error loading Metamod core for engine \"%s\" (server interface %s): %s",
 							mm_GetBackendName(mm_backend), gamedll_iface_name, error);
 			}
+			else
+			{
+				mm_LogDiag("stage=core-dllinit-pre result=ok");
+			}
 		}
 
 		/* Call the original */
+		mm_LogDiag("stage=gamedll-init-orig calling original ISource2Server::Init");
 		InitReturnVal_t result;
 		{
 			union
@@ -462,6 +475,8 @@ public:
 #endif
 			result = (((VEmptyClass *)gamedll_iface)->*u.mfpnew)();
 		}
+
+		mm_LogDiag("stage=gamedll-init-orig result=%d", (int)result);
 
 		/**
 		 * :TODO: possible logic hole here, what happens if the gamedll REALLY returns false? 
@@ -819,8 +834,10 @@ mm_GameDllRequest(const char *name, int *ret)
 	if (strncmp(name, "Source2ServerConfig", 19) == 0)
 	{
 		g_is_source2 = true;
+		mm_LogDiag("stage=iface-request iface=%s", name);
 		if (!mm_DetectGameInformation())
 		{
+			mm_LogDiag("stage=game-info result=FAILED");
 			if (ret != NULL)
 				*ret = 1;
 			return NULL;
@@ -834,6 +851,7 @@ mm_GameDllRequest(const char *name, int *ret)
 		{
 			if (gamedll_libs[i] == NULL)
 			{
+				mm_LogDiag("stage=load-server-binary path=\"%s\"", gamedll_paths[i]);
 				lib = mm_LoadLibrary(gamedll_paths[i], error, sizeof(error));
 				if (lib == NULL)
 				{
@@ -863,6 +881,7 @@ mm_GameDllRequest(const char *name, int *ret)
 
 		if (ptr != NULL)
 		{
+			mm_LogDiag("stage=iface-request iface=%s result=ok ptr=%p", name, ptr);
 			mm_FreeCachedLibraries();
 			gamedll_lib = lib;
 			config_iface = (ISource2ServerConfig *) ptr;
@@ -885,6 +904,7 @@ mm_GameDllRequest(const char *name, int *ret)
 	}
 	else if (strncmp(name, "Source2Server", 13) == 0 && atoi(&name[13]) != 0)
 	{
+		mm_LogDiag("stage=iface-request iface=%s", name);
 		if (gamedll_qvi == NULL)
 		{
 			/* Source2ServerConfig was never resolved (see earlier fatal logs);
@@ -908,6 +928,8 @@ mm_GameDllRequest(const char *name, int *ret)
 		strncpy(gamedll_iface_name, name, sizeof(gamedll_iface_name) - 1);
 		gamedll_iface_name[sizeof(gamedll_iface_name) - 1] = '\0';
 		gamedll_version = atoi(&name[13]);
+		mm_LogDiag("stage=iface-request iface=%s result=ok ptr=%p (patching Init vtable)",
+				   name, (void *)gamedll_iface);
 		mm_PatchDllInit(true);
 
 		if (ret != NULL)
