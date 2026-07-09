@@ -24,6 +24,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <cerrno>
 #include <cstring>
 #include <sys/stat.h>
@@ -547,6 +548,17 @@ mm_StartupMetamod(bool is_vsp_load)
 		METAMOD_VERSION,
 		is_vsp_load ? "V" : "");
 
+	/* Temporary CS2 diagnostic switch: MMS_SKIP_CORE_CONVARS=1 skips all
+	 * core convar creation so the boot can proceed straight to the plugin
+	 * phase. Isolation aid only, not intended production behavior. */
+	const char *skip_convars = getenv("MMS_SKIP_CORE_CONVARS");
+	if (skip_convars != NULL && skip_convars[0] == '1')
+	{
+		UTIL_Diag("stage=metamod-convars skipped reason=MMS_SKIP_CORE_CONVARS");
+	}
+	else
+	{
+
 	UTIL_Diag("stage=metamod-convars begin name=metamod_version (SDK CConVar ctor + engine cvar registration)");
 	metamod_version = provider->CreateConVar("metamod_version",
 		METAMOD_VERSION,
@@ -554,14 +566,23 @@ mm_StartupMetamod(bool is_vsp_load)
 		ConVarFlag_Notify|ConVarFlag_SpOnly);
 	UTIL_Diag("stage=metamod-convars name=metamod_version ptr=%p", (void *)metamod_version);
 
-	if (metamod_version != NULL)
+	if (metamod_version == NULL)
 	{
-		provider->SetConVarString(metamod_version, buffer);
-		UTIL_Diag("stage=metamod-convars name=metamod_version value-set ok");
+		UTIL_Diag("stage=metamod-convars name=metamod_version SKIP value-set (creation failed)");
+	}
+	else if (strcmp(buffer, METAMOD_VERSION) == 0)
+	{
+		/* Non-VSP loads set the value the convar was just constructed
+		 * with. CConVar::Set is the first SDK call into the engine's
+		 * cvar value machinery after the July 2026 CS2 update; skipping
+		 * the redundant call avoids that path entirely. */
+		UTIL_Diag("stage=metamod-convars name=metamod_version value-set skipped (value equals default)");
 	}
 	else
 	{
-		UTIL_Diag("stage=metamod-convars name=metamod_version SKIP value-set (creation failed)");
+		UTIL_Diag("stage=metamod-convars name=metamod_version value-set begin (SDK CConVar::Set)");
+		provider->SetConVarString(metamod_version, buffer);
+		UTIL_Diag("stage=metamod-convars name=metamod_version value-set ok");
 	}
 
 	UTIL_Diag("stage=metamod-convars begin name=mm_pluginsfile");
@@ -586,6 +607,8 @@ mm_StartupMetamod(bool is_vsp_load)
 		ConVarFlag_SpOnly);
 	UTIL_Diag("stage=metamod-convars name=mm_basedir ptr=%p", (void *)mm_basedir);
 	UTIL_Diag("stage=metamod-convars complete");
+
+	}
 
 	g_bIsVspBridged = is_vsp_load;
 

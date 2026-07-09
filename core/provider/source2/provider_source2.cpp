@@ -415,7 +415,10 @@ void Source2Provider::SetConVarString(MetamodSourceConVar *convar, const char* s
 		UTIL_Diag("stage=convar-set result=SKIPPED (convar=%p str=%p)", (void *)convar, (const void *)str);
 		return;
 	}
+	UTIL_Diag("stage=convar-set convar=%p value=\"%s\" begin (SDK CConVar::Set into engine cvar data)",
+		(void *)convar, str);
 	reinterpret_cast<CConVar<CUtlString> *>(convar)->Set( str );
+	UTIL_Diag("stage=convar-set convar=%p complete", (void *)convar);
 }
 
 bool Source2Provider::IsConCommandBaseACommand(ConCommandBase* pCommand)
@@ -479,6 +482,11 @@ MetamodSourceConVar* Source2Provider::CreateConVar(const char* name,
 	// The CConVar ctor registers with the engine's cvar system; if the
 	// convar ABI changed in an engine update, the crash lands between
 	// these two diagnostics.
+	if (g_pCVar == NULL)
+	{
+		UTIL_Diag("stage=convar-create name=\"%s\" SKIPPED (g_pCVar is null; cvar system unavailable)", name);
+		return NULL;
+	}
 	UTIL_Diag("stage=convar-create name=\"%s\" begin (SDK CConVar ctor) g_pCVar=%p", name, (void *)g_pCVar);
 	CConVar<CUtlString> *pVar = new CConVar<CUtlString>( name, newflags, help, defval );
 	UTIL_Diag("stage=convar-create name=\"%s\" complete ptr=%p", name, (void *)pVar);
