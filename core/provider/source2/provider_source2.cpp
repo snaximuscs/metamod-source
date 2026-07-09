@@ -38,6 +38,19 @@
 #include "iserver.h"
 
 
+// CS2's Linux server binaries no longer export the tier0 global
+// g_bUpdateStringTokenDatabase, but hl2sdk-cs2's inline
+// CUtlStringToken(const char*) constructor (public/tier1/utlstringtoken.h)
+// still reads it. As a data symbol it must resolve at dlopen time, so any
+// use of that inline code leaves metamod.2.cs2.so unloadable with
+// "undefined symbol: g_bUpdateStringTokenDatabase". Defining it locally as
+// false matches the engine's release behavior (the string-token database is
+// a dev-only feature) and keeps the guarded RegisterStringToken() call —
+// a lazily-bound function symbol — from ever being reached.
+extern "C" {
+	bool g_bUpdateStringTokenDatabase = false;
+}
+
 static Source2Provider g_Source2Provider;
 
 IMetamodSourceProvider* provider = &g_Source2Provider;

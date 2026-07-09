@@ -83,6 +83,21 @@ jobs:
           done
           exit $bad
 
+      - name: Verify no unresolved engine data symbols
+        run: |
+          so=build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.cs2.so
+          test -f "$so"
+          # Data symbols must resolve at dlopen time; CS2's Linux tier0 no
+          # longer exports g_bUpdateStringTokenDatabase, so it must not appear
+          # as an undefined dynamic symbol in the core.
+          if readelf -Ws "$so" | grep "UND" | grep -q "g_bUpdateStringTokenDatabase"; then
+            echo "::error::metamod.2.cs2.so still has unresolved g_bUpdateStringTokenDatabase"
+            readelf -Ws "$so" | grep "g_bUpdateStringTokenDatabase"
+            exit 1
+          fi
+          echo "OK: g_bUpdateStringTokenDatabase is not an undefined dynamic symbol"
+          readelf -Ws "$so" | grep "g_bUpdateStringTokenDatabase" || true
+
       - name: Verify CS2 package contents
         run: |
           test -f build/package/addons/metamod/bin/linuxsteamrt64/metamod.2.cs2.so
