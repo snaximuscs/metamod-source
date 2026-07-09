@@ -128,6 +128,9 @@ mm_DetectGameInformation()
 
 	char temp_path[PLATFORM_MAX_PATH];
 	char cur_path[PLATFORM_MAX_PATH];
+	/* Diagnostics for post-update path changes: remember what we probed. */
+	unsigned int candidates_probed = 0;
+	char last_missing_path[PLATFORM_MAX_PATH] = { 0 };
 
 	char *ptr;
 	const char *lptr;
@@ -178,9 +181,14 @@ mm_DetectGameInformation()
 		if (mm_PathCmp(mm_path, temp_path))
 			continue;
 
+		candidates_probed++;
+
 		FILE *exists = fopen(temp_path, "rb");
 		if (!exists)
+		{
+			mm_Format(last_missing_path, sizeof(last_missing_path), "%s", temp_path);
 			continue;
+		}
 		fclose(exists);
 
 		/* exists is still non-NULL... use this as a flag */
@@ -211,7 +219,20 @@ mm_DetectGameInformation()
 
 	if (gamedll_path_count == 0)
 	{
-		mm_LogFatal("Could not detect any valid game paths in gameinfo file");
+		/* Post-update diagnostics: show exactly what was searched so a Valve
+		 * layout change (e.g. moved linuxsteamrt64 binaries) is obvious in logs. */
+		mm_LogFatal("Could not detect any valid game paths in gameinfo file.\n"
+					"  game folder: \"%s\" (source2=%s)\n"
+					"  gameinfo: %s\n"
+					"  expected server binary: %s under \"%s\"\n"
+					"  candidate paths probed: %u (last missing: %s)",
+					game_name,
+					is_source2 ? "yes" : "no",
+					gameinfo_path,
+					is_source2 ? SERVER_NAME_S2 : SERVER_NAME_S1,
+					is_source2 ? PLATFORM_SUBDIR_S2 : PLATFORM_SUBDIR_S1,
+					candidates_probed,
+					last_missing_path[0] ? last_missing_path : "<none probed>");
 		return false;
 	}
 
@@ -380,7 +401,9 @@ public:
 		char error[255];
 		if (!mm_LoadMetamodLibrary(mm_backend, error, sizeof(error)))
 		{
-			mm_LogFatal("Detected engine %d but could not load: %s", mm_backend, error);
+			mm_LogFatal("Detected engine \"%s\" (game=\"%s\") but could not load metamod.%s: %s",
+						mm_GetBackendName(mm_backend), game_name,
+						mm_GetBackendName(mm_backend), error);
 		}
 		else
 		{
@@ -389,7 +412,8 @@ public:
 			if (get_bridge == NULL)
 			{
 				mm_UnloadMetamodLibrary();
-				mm_LogFatal("Detected engine %d but could not find GetGameDllBridge callback", mm_backend);
+				mm_LogFatal("Detected engine \"%s\" but could not find GetGameDllBridge callback",
+							mm_GetBackendName(mm_backend));
 			}
 			else
 			{
@@ -411,7 +435,8 @@ public:
 			{
 				gamedll_bridge = NULL;
 				mm_UnloadMetamodLibrary();
-				mm_LogFatal("Unknown error loading Metamod for engine %d: %s", mm_backend, error);	
+				mm_LogFatal("Error loading Metamod core for engine \"%s\" (server interface %s): %s",
+							mm_GetBackendName(mm_backend), gamedll_iface_name, error);
 			}
 		}
 
@@ -811,13 +836,23 @@ mm_GameDllRequest(const char *name, int *ret)
 			{
 				lib = mm_LoadLibrary(gamedll_paths[i], error, sizeof(error));
 				if (lib == NULL)
+				{
+					/* Post-update diagnostics: dlopen failures here (missing
+					 * deps after a binary refresh) were previously silent. */
+					mm_LogFatal("Failed to load server binary \"%s\": %s",
+								gamedll_paths[i], error);
 					continue;
+				}
 				gamedll_libs[i] = lib;
 			}
 			lib = gamedll_libs[i];
 			qvi = (QueryValveInterface)mm_GetLibAddress(lib, "CreateInterface");
 			if (qvi == NULL)
+			{
+				mm_LogFatal("Server binary \"%s\" has no CreateInterface export",
+							gamedll_paths[i]);
 				continue;
+			}
 			ptr = qvi(name, ret);
 			if (ptr != NULL)
 			{
@@ -842,10 +877,34 @@ mm_GameDllRequest(const char *name, int *ret)
 				*ret = 0;
 			return ptr;
 		}
+
+		mm_LogFatal("No server binary provided interface \"%s\" "
+					"(game=\"%s\", %u path(s) tried). "
+					"The engine may have renamed this interface in the latest update.",
+					name, game_name, gamedll_path_count);
 	}
 	else if (strncmp(name, "Source2Server", 13) == 0 && atoi(&name[13]) != 0)
 	{
+		if (gamedll_qvi == NULL)
+		{
+			/* Source2ServerConfig was never resolved (see earlier fatal logs);
+			 * fail this request cleanly instead of crashing. */
+			mm_LogFatal("Received request for \"%s\" before the server binary was loaded", name);
+			if (ret != NULL)
+				*ret = 1;
+			return NULL;
+		}
 		gamedll_iface = (IServerGameDLL *)gamedll_qvi(name, ret);
+		if (gamedll_iface == NULL)
+		{
+			/* The server binary no longer exports this version; report it
+			 * rather than crashing in the vtable patch below. */
+			mm_LogFatal("Server binary did not provide interface \"%s\" (game=\"%s\")",
+						name, game_name);
+			if (ret != NULL)
+				*ret = 1;
+			return NULL;
+		}
 		strncpy(gamedll_iface_name, name, sizeof(gamedll_iface_name) - 1);
 		gamedll_iface_name[sizeof(gamedll_iface_name) - 1] = '\0';
 		gamedll_version = atoi(&name[13]);

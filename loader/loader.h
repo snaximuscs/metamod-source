@@ -129,6 +129,10 @@ mm_GetGameName(char *buffer, size_t size);
 extern MetamodBackend
 mm_DetermineBackendS1(QueryValveInterface engineFactory, QueryValveInterface serverFactory, const char *game_name);
 
+/* Human-readable backend name (e.g. "2.cs2") for diagnostics. */
+extern const char *
+mm_GetBackendName(MetamodBackend backend);
+
 extern MetamodBackend mm_backend;
 
 #endif /* _INCLUDE_METAMOD_SOURCE_LOADER_H_ */

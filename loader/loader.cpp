@@ -107,6 +107,14 @@ static const char *backend_names[] =
 	"2.deadlock",
 };
 
+const char *
+mm_GetBackendName(MetamodBackend backend)
+{
+	if ((int)backend < 0 || backend >= MMBackend_UNKNOWN)
+		return "unknown";
+	return backend_names[backend];
+}
+
 #if defined _WIN32
 #define LIBRARY_EXT		".dll"
 #define LIBRARY_MINEXT	".dll"
@@ -224,7 +232,12 @@ mm_GetGameName(char *buffer, size_t size)
 		// relying on Game paths. The function only returns the first path defined, and in the case of S2, where
 		// we can't even set MM:S path with GameBin instead of Game, the first Game path will always be MM:S's
 		// location, rather than the real Game dir
-		char *pszAppId = std::getenv("SteamAppId");
+		// Post-update compat: some srcds launch paths only populate SteamGameId
+		// (or neither, until Steam init). Try both before giving up so CS2
+		// detection doesn't silently fall through to the wrong backend.
+		const char *pszAppId = std::getenv("SteamAppId");
+		if (pszAppId == nullptr || pszAppId[0] == '\0')
+			pszAppId = std::getenv("SteamGameId");
 		if (pszAppId)
 		{
 			switch (strtoul(pszAppId, nullptr, 10))

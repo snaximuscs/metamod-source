@@ -23,6 +23,10 @@
  * 3. This notice may not be removed or altered from any source distribution.
  */
 
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
+
 #include "provider_source2.h"
 #include "metamod.h"
 #include "metamod_util.h"
@@ -57,30 +61,76 @@ SH_DECL_HOOK0_void(ILoopMode, LoopShutdown, SH_NOATTRIB, 0);
 SH_DECL_HOOK1(ISource2ServerConfig, AllowDedicatedServers, const, 0, bool, EUniverse);
 #endif
 
+// Post-update compat: Valve occasionally bumps the numeric suffix of Source 2
+// interface versions in CS2 updates before the SDK headers catch up. Try the
+// exact name first, then the next couple of versions. A fallback hit is only
+// used as a lookup aid and is logged loudly, since a version bump can also
+// mean an ABI change; a serious mismatch will still fail via the strict
+// required-interface checks below.
+static void* LookupInterfaceCompat(CreateInterfaceFn factory, const char* name)
+{
+	void* iface = factory(name, NULL);
+	if (iface != nullptr)
+		return iface;
+
+	size_t len = strlen(name);
+	if (len < 3
+		|| !isdigit((unsigned char)name[len - 1])
+		|| !isdigit((unsigned char)name[len - 2])
+		|| !isdigit((unsigned char)name[len - 3]))
+	{
+		mm_LogMessage("[META] Interface \"%s\" not found (no versioned fallback possible)", name);
+		return nullptr;
+	}
+
+	int version = atoi(&name[len - 3]);
+	char candidate[128];
+	for (int bump = 1; bump <= 2; bump++)
+	{
+		UTIL_Format(candidate, sizeof(candidate), "%.*s%03d", (int)(len - 3), name, version + bump);
+		iface = factory(candidate, NULL);
+		if (iface != nullptr)
+		{
+			mm_LogMessage("[META] Interface \"%s\" not found; falling back to newer \"%s\". "
+				"Metamod:Source was built against older headers - if this interface's "
+				"ABI changed, update Metamod:Source.", name, candidate);
+			return iface;
+		}
+	}
+
+	mm_LogMessage("[META] Interface \"%s\" not found (fallback versions %03d-%03d also missing)",
+		name, version + 1, version + 2);
+	return nullptr;
+}
+
 void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	CreateInterfaceFn serverFactory)
 {
-	engine = (IVEngineServer*)((engineFactory)(INTERFACEVERSION_VENGINESERVER, NULL));
+	engine = (IVEngineServer*)LookupInterfaceCompat(engineFactory, INTERFACEVERSION_VENGINESERVER);
 	if (!engine)
 	{
-		DisplayError("Could not find IVEngineServer! Metamod cannot load.");
+		DisplayError("Could not find IVEngineServer (\"%s\") in engine binary! "
+			"Metamod cannot load - the engine interface likely changed in the latest update.",
+			INTERFACEVERSION_VENGINESERVER);
 		return;
 	}
 
 	gpGlobals = engine->GetServerGlobals();
-	serverconfig = (ISource2ServerConfig*)((serverFactory)(INTERFACEVERSION_SERVERCONFIG, NULL));
-	netservice = (INetworkServerService*)((engineFactory)(NETWORKSERVERSERVICE_INTERFACE_VERSION, NULL));
-	enginesvcmgr = (IEngineServiceMgr*)((engineFactory)(ENGINESERVICEMGR_INTERFACE_VERSION, NULL));
+	serverconfig = (ISource2ServerConfig*)LookupInterfaceCompat(serverFactory, INTERFACEVERSION_SERVERCONFIG);
+	netservice = (INetworkServerService*)LookupInterfaceCompat(engineFactory, NETWORKSERVERSERVICE_INTERFACE_VERSION);
+	enginesvcmgr = (IEngineServiceMgr*)LookupInterfaceCompat(engineFactory, ENGINESERVICEMGR_INTERFACE_VERSION);
 
-	icvar = (ICvar*)((engineFactory)(CVAR_INTERFACE_VERSION, NULL));
+	icvar = (ICvar*)LookupInterfaceCompat(engineFactory, CVAR_INTERFACE_VERSION);
 	if (!icvar)
 	{
-		DisplayError("Could not find ICvar! Metamod cannot load.");
+		DisplayError("Could not find ICvar (\"%s\") in engine binary! "
+			"Metamod cannot load - the engine interface likely changed in the latest update.",
+			CVAR_INTERFACE_VERSION);
 		return;
 	}
 
-	gameclients = (IServerGameClients*)(serverFactory(INTERFACEVERSION_SERVERGAMECLIENTS, NULL));
-	g_pFullFileSystem = baseFs = (IFileSystem*)((engineFactory)(FILESYSTEM_INTERFACE_VERSION, NULL));
+	gameclients = (IServerGameClients*)LookupInterfaceCompat(serverFactory, INTERFACEVERSION_SERVERGAMECLIENTS);
+	g_pFullFileSystem = baseFs = (IFileSystem*)LookupInterfaceCompat(engineFactory, FILESYSTEM_INTERFACE_VERSION);
 	if (baseFs == NULL)
 	{
 		mm_LogMessage("Unable to find \"%s\": .vdf files will not be parsed", FILESYSTEM_INTERFACE_VERSION);
@@ -96,6 +146,10 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 
 	// NOTE: baseFs->PrintSearchPaths(); could be used to print out search paths to debug them.
 
+	// Post-update compat: only fix up search paths if the filesystem interface
+	// was actually found; previously a renamed IFileSystem crashed here.
+	if (baseFs != NULL)
+	{
 	const char *pathIds[] = {
 		"ADDONS",
 		"CONTENT",
@@ -131,6 +185,7 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	CBufferStringN<260> searchPath;
 	baseFs->GetSearchPath("GAME", (GetSearchPathTypes_t)0, searchPath, 1);
 	baseFs->AddSearchPath(searchPath.Get(), "DEFAULT_WRITE_PATH");
+	}
 
 	g_pCVar = icvar;
 
@@ -145,8 +200,19 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 	SH_ADD_VPHOOK(ISource2ServerConfig, AllowDedicatedServers, serverconfig, SH_MEMBER(this, &Source2Provider::Hook_AllowDedicatedServers), false);
 #endif
 
-	SH_ADD_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
-	SH_ADD_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+	// Post-update compat: a renamed IEngineServiceMgr previously caused a
+	// hook on a null pointer and crashed the server at startup. Level
+	// init/shutdown callbacks are degraded without it, but we can still load.
+	if (enginesvcmgr != NULL)
+	{
+		SH_ADD_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
+		SH_ADD_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+	}
+	else
+	{
+		mm_LogMessage("[META] Warning: \"%s\" unavailable; level init/shutdown notifications disabled",
+			ENGINESERVICEMGR_INTERFACE_VERSION);
+	}
 }
 
 void Source2Provider::Notify_DLLShutdown_Pre()
@@ -156,8 +222,11 @@ void Source2Provider::Notify_DLLShutdown_Pre()
 
 	ConVar_Unregister();
 
-	SH_REMOVE_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
-	SH_REMOVE_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+	if (enginesvcmgr != NULL)
+	{
+		SH_REMOVE_HOOK(IEngineServiceMgr, RegisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_RegisterLoopMode), false);
+		SH_REMOVE_HOOK(IEngineServiceMgr, UnregisterLoopMode, enginesvcmgr, SH_MEMBER(this, &Source2Provider::Hook_UnregisterLoopMode), false);
+	}
 
 	if (gameclients)
 	{
@@ -242,6 +311,11 @@ void Source2Provider::GetGamePath(char* pszBuffer, int len)
 
 const char* Source2Provider::GetGameDescription()
 {
+	// serverconfig is optional post-update (see Notify_DLLInit_Pre)
+	if (serverconfig == NULL)
+	{
+		return "Unknown (Source 2)";
+	}
 	return serverconfig->GetGameDescription();
 }
 
