@@ -240,7 +240,12 @@ mm_GetGameName(char *buffer, size_t size)
 			pszAppId = std::getenv("SteamGameId");
 		if (pszAppId)
 		{
-			switch (strtoul(pszAppId, nullptr, 10))
+			// Parse locally instead of strtoul: glibc 2.38+ redirects it to
+			// __isoc23_strtoul@GLIBC_2.38, breaking older runtimes (sniper).
+			unsigned long appId = 0;
+			for (const char *p = pszAppId; *p >= '0' && *p <= '9'; ++p)
+				appId = appId * 10 + (unsigned long)(*p - '0');
+			switch (appId)
 			{
 				case 570ul:
 					strncpy(buffer, "dota", size);

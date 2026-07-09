@@ -1,0 +1,12 @@
+failed to dlopen /home/container/game/csgo/addons/metamod/bin/ linuxsteamrt64/libserver.so error=/lib/x86_64-linux-gnu/libc.so
+• 6: version
+'GLIBC_2.38' not found (required by /home/container
+/game/csgo/addons/metamod/bin/linuxsteamrt64/libserver.so)
+failed to dlopen "/home/container/game/csgo/addons/metamod/bin /linuxsteamrt64/libserver.so" error=/lib/x86_64-linux-gnu/libc. so.6: version 'GLIBC_2.38' not found (required by /home/contain er/ game/csgo/addons/metamod/bin/linuxsteamrt64/libserver.so)
+FATAL ERROR: CAppSystemDict:Unable to load module server (Depen dency of application), error 2
+• FATAL ERROR: CAppSystemDict:Unable to load module server (De pendency of application), error 2
+•/game/cs2. sh: line 109:
+48 Segmentation fault
+(core du
+mped) ${STEAM_RUNTIME_PREFIX} ${GAME_DEBUGGER} "${GAMEROOT} " /${
+GAMEEXE} "$Q"

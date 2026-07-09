@@ -55,6 +55,34 @@
 
 namespace SourceHook
 {
+	// Local strtoul replacement. glibc 2.38+ headers redirect strtoul/fscanf
+	// to __isoc23_* symbols versioned GLIBC_2.38, which makes binaries built
+	// on new hosts fail to load on older runtimes (e.g. Steam sniper, 2.31).
+	static inline unsigned long SH_ParseUlong(const char *str, char **endptr, int base)
+	{
+		while (*str == ' ' || *str == '\t')
+			++str;
+		if (base == 16 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))
+			str += 2;
+		unsigned long val = 0;
+		for (;; ++str)
+		{
+			int digit;
+			if (*str >= '0' && *str <= '9')
+				digit = *str - '0';
+			else if (base == 16 && *str >= 'a' && *str <= 'f')
+				digit = *str - 'a' + 10;
+			else if (base == 16 && *str >= 'A' && *str <= 'F')
+				digit = *str - 'A' + 10;
+			else
+				break;
+			val = val * (unsigned long)base + (unsigned long)digit;
+		}
+		if (endptr)
+			*endptr = const_cast<char *>(str);
+		return val;
+	}
+
 	static inline bool GetPageBits(void *addr, int *bits)
 	{
 #if SH_SYS == SH_SYS_LINUX
@@ -75,8 +103,8 @@ namespace SourceHook
 			while (getline(&buffer, &bufsize, pF) != -1) {
 				char *addr_split;
 				char *prot_split;
-				rlower = strtoul(buffer, &addr_split, 16);
-				rupper = strtoul(&addr_split[1], &prot_split, 16);
+				rlower = SH_ParseUlong(buffer, &addr_split, 16);
+				rupper = SH_ParseUlong(&addr_split[1], &prot_split, 16);
 				// Check whether we're IN THERE!
 				if (laddr >= rlower && laddr < rupper) {
 					r = prot_split[1];
@@ -101,11 +129,25 @@ namespace SourceHook
 		if (pF) {
 			// FreeBSD /proc/curproc/map -> parse
 			// 0x804800 0x805500 13 15 0xc6e18960 r-x 21 0x0 COW NC vnode
-			unsigned long rlower, rupper, ignoreLong;
-			int ignoreInt;
+			unsigned long rlower, rupper;
 			char r, w, x;
-			while (fscanf(pF, "0x%lx 0x%lx %d %d 0x%lx %c%c%c", &rlower, &rupper, &ignoreInt,
-						  &ignoreInt, &ignoreLong, &r, &w, &x) != EOF) {
+			char line[512];
+			while (fgets(line, sizeof(line), pF) != NULL) {
+				char *p = line;
+				rlower = SH_ParseUlong(p, &p, 16);
+				rupper = SH_ParseUlong(p, &p, 16);
+				// skip 3 fields to reach the protection flags
+				for (int field = 0; field < 3; ++field) {
+					while (*p == ' ' || *p == '\t')
+						++p;
+					while (*p && *p != ' ' && *p != '\t')
+						++p;
+				}
+				while (*p == ' ' || *p == '\t')
+					++p;
+				r = p[0];
+				w = p[1];
+				x = p[2];
 				// Check whether we're IN THERE!
 				if (laddr >= rlower && laddr < rupper) {
 					fclose(pF);
@@ -118,14 +160,6 @@ namespace SourceHook
 						*bits |= SH_MEM_EXEC;
 					return true;
 				}
-				// Read to end of line
-				int c;
-				while ((c = fgetc(pF)) != '\n') {
-					if (c == EOF)
-						break;
-				}
-				if (c == EOF)
-					break;
 			}
 			fclose(pF);
 			return false;
@@ -280,8 +314,8 @@ namespace SourceHook
 				size_t bufsize = 0;
 				while (getline(&buffer, &bufsize, pF) != -1) {
 					char *addr_split;
-					unsigned long rlower = strtoul(buffer, &addr_split, 16);
-					unsigned long rupper = strtoul(&addr_split[1], NULL, 16);
+					unsigned long rlower = SH_ParseUlong(buffer, &addr_split, 16);
+					unsigned long rupper = SH_ParseUlong(&addr_split[1], NULL, 16);
 					// Check whether we're IN THERE!
 					if (lower >= rlower && upper <= rupper)
 					{
@@ -298,24 +332,19 @@ namespace SourceHook
 			{
 				// FreeBSD /proc/curproc/map -> parse
 				// 0x804800 0x805500 13 15 0xc6e18960 r-x 21 0x0 COW NC vnode
-				long rlower, rupper;
-				while (fscanf(pF, "0x%lx 0x%lx", &rlower, &rupper) != EOF)
+				unsigned long rlower, rupper;
+				char line[512];
+				while (fgets(line, sizeof(line), pF) != NULL)
 				{
+					char *p = line;
+					rlower = SH_ParseUlong(p, &p, 16);
+					rupper = SH_ParseUlong(p, &p, 16);
 					// Check whether we're IN THERE!
 					if (lower >= rlower && upper <= rupper)
 					{
 						fclose(pF);
 						return true;
 					}
-					// Read to end of line
-					int c;
-					while ((c = fgetc(pF)) != '\n')
-					{
-						if (c == EOF)
-							break;
-					}
-					if (c == EOF)
-						break;
 				}
 				fclose(pF);
 				return false;
